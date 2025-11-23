@@ -44,6 +44,8 @@ public class CinemaConsoleClient {
                     case 2 -> testBookingService(scanner);
                     case 3 -> testPaymentService(scanner);
                     case 4 -> testCompleteWorkflow(scanner);
+                    case 5 -> testErrorHandling(scanner);
+                    case 6 -> testContentNegotiation(scanner);
                     case 0 -> {
                         running = false;
                         System.out.println("\nGoodbye!");
@@ -73,6 +75,8 @@ public class CinemaConsoleClient {
         System.out.println("2. Test Booking Service");
         System.out.println("3. Test Payment Service");
         System.out.println("4. Complete Workflow (search -> book -> pay)");
+        System.out.println("5. Test Error Handling (404, 400, 409)");
+        System.out.println("6. Test Content Negotiation (JSON/XML)");
         System.out.println("0. Exit");
         System.out.println("------------------------------------------------------------");
     }
@@ -106,7 +110,7 @@ public class CinemaConsoleClient {
 
     private static void getAllMovies() throws Exception {
         System.out.println("\nRequest: GET /movies");
-        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies");
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies", "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -116,7 +120,7 @@ public class CinemaConsoleClient {
         String searchText = scanner.nextLine();
 
         System.out.println("\nRequest: GET /movies?search=" + searchText);
-        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies?search=" + searchText);
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies?search=" + searchText, "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -126,14 +130,14 @@ public class CinemaConsoleClient {
         String id = scanner.nextLine();
 
         System.out.println("\nRequest: GET /movies/" + id);
-        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies/" + id);
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies/" + id, "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
 
     private static void getAllSessions() throws Exception {
         System.out.println("\nRequest: GET /movies/sessions");
-        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies/sessions");
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies/sessions", "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -143,7 +147,7 @@ public class CinemaConsoleClient {
         String id = scanner.nextLine();
 
         System.out.println("\nRequest: GET /movies/" + id + "/sessions");
-        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies/" + id + "/sessions");
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies/" + id + "/sessions", "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -175,7 +179,7 @@ public class CinemaConsoleClient {
 
     private static void getAllBookings() throws Exception {
         System.out.println("\nRequest: GET /bookings");
-        String response = sendGetRequest(BOOKING_SERVICE_URL + "/bookings");
+        String response = sendGetRequest(BOOKING_SERVICE_URL + "/bookings", "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -185,7 +189,7 @@ public class CinemaConsoleClient {
         String id = scanner.nextLine();
 
         System.out.println("\nRequest: GET /bookings/" + id);
-        String response = sendGetRequest(BOOKING_SERVICE_URL + "/bookings/" + id);
+        String response = sendGetRequest(BOOKING_SERVICE_URL + "/bookings/" + id, "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -262,7 +266,7 @@ public class CinemaConsoleClient {
 
     private static void getAllPayments() throws Exception {
         System.out.println("\nRequest: GET /payments");
-        String response = sendGetRequest(PAYMENT_SERVICE_URL + "/payments");
+        String response = sendGetRequest(PAYMENT_SERVICE_URL + "/payments", "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -272,7 +276,7 @@ public class CinemaConsoleClient {
         String bookingId = scanner.nextLine();
 
         System.out.println("\nRequest: GET /payments?bookingId=" + bookingId);
-        String response = sendGetRequest(PAYMENT_SERVICE_URL + "/payments?bookingId=" + bookingId);
+        String response = sendGetRequest(PAYMENT_SERVICE_URL + "/payments?bookingId=" + bookingId, "application/json");
         System.out.println("\nResponse:");
         System.out.println(response);
     }
@@ -325,7 +329,7 @@ public class CinemaConsoleClient {
 
         // Step 1: Search movies
         System.out.println("\nStep 1: Get available movies");
-        String movies = sendGetRequest(MOVIE_SERVICE_URL + "/movies");
+        String movies = sendGetRequest(MOVIE_SERVICE_URL + "/movies", "application/json");
         System.out.println(movies);
 
         System.out.print("\nEnter movie ID to view sessions: ");
@@ -333,7 +337,7 @@ public class CinemaConsoleClient {
 
         // Step 2: View sessions
         System.out.println("\nStep 2: Get movie sessions");
-        String sessions = sendGetRequest(MOVIE_SERVICE_URL + "/movies/" + movieId + "/sessions");
+        String sessions = sendGetRequest(MOVIE_SERVICE_URL + "/movies/" + movieId + "/sessions", "application/json");
         System.out.println(sessions);
 
         System.out.print("\nEnter session ID for booking: ");
@@ -376,19 +380,284 @@ public class CinemaConsoleClient {
         System.out.println("\nComplete workflow finished successfully!");
     }
 
+    // ============ ERROR HANDLING TESTS ============
+
+    private static void testErrorHandling(Scanner scanner) {
+        System.out.println("\n=== ERROR HANDLING DEMONSTRATION ===");
+        System.out.println("This section demonstrates proper HTTP error codes:");
+        System.out.println("1. Test 404 Not Found");
+        System.out.println("2. Test 400 Bad Request");
+        System.out.println("3. Test 409 Conflict");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        try {
+            switch (choice) {
+                case 1 -> test404NotFound();
+                case 2 -> test400BadRequest();
+                case 3 -> test409Conflict();
+            }
+        } catch (Exception e) {
+            System.out.println("Error demonstration completed: " + e.getMessage());
+        }
+    }
+
+    private static void test404NotFound() {
+        System.out.println("\n--- Testing 404 Not Found ---");
+
+        // Test 1: Non-existent movie
+        System.out.println("\n1. Getting non-existent movie (mov-999):");
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(MOVIE_SERVICE_URL + "/movies/mov-999"))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+
+        // Test 2: Non-existent booking
+        System.out.println("\n2. Getting non-existent booking (bk-9999):");
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings/bk-9999"))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+
+        // Test 3: Non-existent payment
+        System.out.println("\n3. Getting non-existent payment (pay-9999):");
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(PAYMENT_SERVICE_URL + "/payments/pay-9999"))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+    }
+
+    private static void test400BadRequest() {
+        System.out.println("\n--- Testing 400 Bad Request ---");
+
+        // Test 1: Invalid booking request (missing required fields)
+        System.out.println("\n1. Creating booking with missing required fields:");
+        try {
+            String invalidJson = """
+                {
+                  "sessionId": "",
+                  "userId": "",
+                  "customerName": "",
+                  "seats": []
+                }
+                """;
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(invalidJson))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+
+        // Test 2: Invalid payment method
+        System.out.println("\n2. Creating payment with invalid method:");
+        try {
+            String invalidJson = """
+                {
+                  "bookingId": "bk-1001",
+                  "amount": {"value": 10.0, "currency": "EUR"},
+                  "method": "INVALID_METHOD"
+                }
+                """;
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(PAYMENT_SERVICE_URL + "/payments"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(invalidJson))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+    }
+
+    private static void test409Conflict() {
+        System.out.println("\n--- Testing 409 Conflict ---");
+
+        // Test 1: Duplicate payment for same booking
+        System.out.println("\n1. Creating duplicate payment for existing booking:");
+        try {
+            String json = """
+                {
+                  "bookingId": "bk-1001",
+                  "amount": {"value": 21.0, "currency": "EUR"},
+                  "method": "CARD"
+                }
+                """;
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(PAYMENT_SERVICE_URL + "/payments"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+
+        // Test 2: Booking already booked seat
+        System.out.println("\n2. Booking already reserved seat:");
+        try {
+            String json = """
+                {
+                  "sessionId": "sess-1002",
+                  "userId": "user-9002",
+                  "customerName": "Another User",
+                  "customerEmail": "another@example.com",
+                  "seats": [
+                    {"row": 7, "number": 12, "seatId": "R7N12"}
+                  ]
+                }
+                """;
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
+        }
+    }
+
+    // ============ CONTENT NEGOTIATION TEST ============
+
+    private static void testContentNegotiation(Scanner scanner) {
+        System.out.println("\n=== CONTENT NEGOTIATION DEMONSTRATION ===");
+        System.out.println("Testing JSON and XML response formats");
+        System.out.println("1. Get movies in JSON format");
+        System.out.println("2. Get movies in XML format");
+        System.out.println("3. Get bookings in JSON format");
+        System.out.println("4. Get bookings in XML format");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        try {
+            switch (choice) {
+                case 1 -> testJsonResponse();
+                case 2 -> testXmlResponse();
+                case 3 -> testBookingsJson();
+                case 4 -> testBookingsXml();
+            }
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private static void testJsonResponse() throws Exception {
+        System.out.println("\n--- JSON Response Format ---");
+        System.out.println("Request: GET /movies");
+        System.out.println("Accept: application/json\n");
+
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies", "application/json");
+        System.out.println("Response:");
+        System.out.println(response);
+    }
+
+    private static void testXmlResponse() throws Exception {
+        System.out.println("\n--- XML Response Format ---");
+        System.out.println("Request: GET /movies");
+        System.out.println("Accept: application/xml\n");
+
+        String response = sendGetRequest(MOVIE_SERVICE_URL + "/movies", "application/xml");
+        System.out.println("Response:");
+        System.out.println(response);
+    }
+
+    private static void testBookingsJson() throws Exception {
+        System.out.println("\n--- JSON Response Format ---");
+        System.out.println("Request: GET /bookings");
+        System.out.println("Accept: application/json\n");
+
+        String response = sendGetRequest(BOOKING_SERVICE_URL + "/bookings", "application/json");
+        System.out.println("Response:");
+        System.out.println(response);
+    }
+
+    private static void testBookingsXml() throws Exception {
+        System.out.println("\n--- XML Response Format ---");
+        System.out.println("Request: GET /bookings");
+        System.out.println("Accept: application/xml\n");
+
+        String response = sendGetRequest(BOOKING_SERVICE_URL + "/bookings", "application/xml");
+        System.out.println("Response:");
+        System.out.println(response);
+    }
+
     // ============ HTTP METHODS ============
 
-    private static String sendGetRequest(String url) throws Exception {
+    private static String sendGetRequest(String url, String acceptHeader) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .header("Accept", "application/json")
+                .header("Accept", acceptHeader)
                 .GET()
                 .build();
 
         HttpResponse<String> response = httpClient.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        return formatJson(response.body());
+        if (acceptHeader.equals("application/json")) {
+            return formatJson(response.body());
+        }
+        return response.body();
     }
 
     private static String sendPostRequest(String url, String jsonBody) throws Exception {
