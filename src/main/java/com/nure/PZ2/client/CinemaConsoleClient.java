@@ -30,6 +30,7 @@ public class CinemaConsoleClient {
         boolean running = true;
 
         printWelcome();
+        checkServicesHealth();
 
         while (running) {
             printMenu();
@@ -48,6 +49,7 @@ public class CinemaConsoleClient {
                     case 6 -> testErrorHandling(scanner);
                     case 7 -> testContentNegotiation(scanner);
                     case 8 -> demonstrateFailSafe(scanner);
+                    case 9 -> checkServicesHealth();
                     case 0 -> {
                         running = false;
                         System.out.println("\nGoodbye!");
@@ -86,7 +88,60 @@ public class CinemaConsoleClient {
         System.out.println("------------------------------------------------------------");
     }
 
-    // ============ NEW: DEMONSTRATE IPC ============
+    // ============ HEALTH CHECK ============
+
+    private static void checkServicesHealth() {
+        System.out.println("\n============================================================");
+        System.out.println("              SERVICES HEALTH CHECK");
+        System.out.println("============================================================\n");
+
+        boolean movieHealthy = checkServiceHealth("Movie Service", MOVIE_SERVICE_URL + "/movies");
+        boolean bookingHealthy = checkServiceHealth("Booking Service", BOOKING_SERVICE_URL + "/bookings");
+        boolean paymentHealthy = checkServiceHealth("Payment Service", PAYMENT_SERVICE_URL + "/payments");
+
+        System.out.println("\n------------------------------------------------------------");
+        if (movieHealthy && bookingHealthy && paymentHealthy) {
+            System.out.println("✓ All services are running correctly");
+        } else {
+            System.out.println("⚠ Some services are not available");
+            System.out.println("  Please start missing services before testing");
+        }
+        System.out.println("------------------------------------------------------------");
+    }
+
+    private static boolean checkServiceHealth(String serviceName, String url) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(3))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            if (response.statusCode() == 200) {
+                System.out.println("✓ " + serviceName + " - HEALTHY (200 OK)");
+                return true;
+            } else {
+                System.out.println("✗ " + serviceName + " - UNHEALTHY (Status: " + response.statusCode() + ")");
+                return false;
+            }
+        } catch (java.net.ConnectException e) {
+            System.out.println("✗ " + serviceName + " - NOT RUNNING (Connection refused)");
+            return false;
+        } catch (java.net.http.HttpTimeoutException e) {
+            System.out.println("✗ " + serviceName + " - TIMEOUT (Not responding)");
+            return false;
+        } catch (Exception e) {
+            System.out.println("✗ " + serviceName + " - ERROR (" + e.getMessage() + ")");
+            return false;
+        }
+    }
+
+    // ============ DEMONSTRATE IPC ============
 
     private static void demonstrateIPC(Scanner scanner) {
         System.out.println("\n============================================================");
@@ -100,7 +155,9 @@ public class CinemaConsoleClient {
         System.out.println("Choose scenario:");
         System.out.println("1. Booking Service calls Movie Service (valid session)");
         System.out.println("2. Booking Service calls Movie Service (invalid session)");
-        System.out.println("3. Payment Service calls Booking Service (full flow)");
+        System.out.println("3. Booking Service calls Movie Service (service down)");
+        System.out.println("4. Payment Service calls Booking Service (full flow)");
+        System.out.println("5. Payment Service calls Booking Service (invalid booking)");
         System.out.print("Choice: ");
 
         int choice = scanner.nextInt();
@@ -110,7 +167,9 @@ public class CinemaConsoleClient {
             switch (choice) {
                 case 1 -> demonstrateBookingToMovieValid();
                 case 2 -> demonstrateBookingToMovieInvalid();
-                case 3 -> demonstratePaymentToBooking();
+                case 3 -> demonstrateBookingToMovieServiceDown();
+                case 4 -> demonstratePaymentToBooking();
+                case 5 -> demonstratePaymentToBookingInvalid();
             }
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
@@ -144,22 +203,14 @@ public class CinemaConsoleClient {
         System.out.println("Step 2: Booking Service validates session via IPC...");
         System.out.println("        [IPC] GET /movies/sessions/sess-1001 → Movie Service");
         System.out.println();
-        System.out.println("Step 3: Movie Service returns session details:");
-        System.out.println("        {\"id\": \"sess-1001\", \"status\": \"Scheduled\", \"availableSeats\": 160}");
-        System.out.println();
-        System.out.println("Step 4: Booking Service creates booking with price from Movie Service");
-        System.out.println();
 
-        String response = sendPostRequest(BOOKING_SERVICE_URL + "/bookings", json);
+        String response = sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", json);
 
-        System.out.println("   RESULT: Booking created successfully!");
-        System.out.println(response);
-        System.out.println();
-        System.out.println("   IPC Summary:");
+        System.out.println("\n✓ IPC Summary:");
         System.out.println("  - Client → Booking Service: 1 call");
         System.out.println("  - Booking Service → Movie Service: 1 call (internal)");
-        System.out.println("  - Total external calls: 1");
         System.out.println("  - IPC used: REST over HTTP with JSON Schema validation");
+        System.out.println("  - Result: Booking created successfully");
     }
 
     private static void demonstrateBookingToMovieInvalid() throws Exception {
@@ -184,31 +235,45 @@ public class CinemaConsoleClient {
         System.out.println("Step 2: Booking Service validates session via IPC...");
         System.out.println("        [IPC] GET /movies/sessions/sess-9999 → Movie Service");
         System.out.println();
-        System.out.println("Step 3: Movie Service returns 404 Not Found");
+
+        sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", json);
+
+        System.out.println("\n✓ IPC Summary:");
+        System.out.println("  - IPC prevented invalid booking creation");
+        System.out.println("  - Data consistency maintained across services");
+        System.out.println("  - Client received clear error message");
+    }
+
+    private static void demonstrateBookingToMovieServiceDown() throws Exception {
+        System.out.println("\n--- IPC Demo: Booking → Movie (Service Unavailable) ---");
         System.out.println();
-        System.out.println("Step 4: Booking Service rejects booking creation");
+        System.out.println("NOTE: This demo requires Movie Service to be stopped");
+        System.out.println("      Press Enter to continue (or Ctrl+C to skip)...");
+        new Scanner(System.in).nextLine();
+
+        String json = """
+            {
+              "sessionId": "sess-1001",
+              "userId": "user-failsafe",
+              "customerName": "Fail Safe Test",
+              "customerEmail": "failsafe@test.com",
+              "seats": [
+                {"row": 20, "number": 20, "seatId": "R20N20"}
+              ]
+            }
+            """;
+
+        System.out.println("Attempting to create booking...");
+        System.out.println("Booking Service will try to call Movie Service...");
         System.out.println();
 
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings"))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
+        sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", json);
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            System.out.println("   RESULT: Booking rejected!");
-            System.out.println("Status: " + response.statusCode());
-            System.out.println("Response:");
-            System.out.println(formatJson(response.body()));
-            System.out.println();
-            System.out.println("   IPC Summary:");
-            System.out.println("  - IPC prevented invalid booking creation");
-            System.out.println("  - Data consistency maintained across services");
-        } catch (Exception e) {
-            System.out.println("Error: " + e.getMessage());
-        }
+        System.out.println("\n✓ Fail-Safe Summary:");
+        System.out.println("  - Booking Service detected Movie Service unavailability");
+        System.out.println("  - Returned clear error message to client");
+        System.out.println("  - No cascading failure");
+        System.out.println("  - System remains stable");
     }
 
     private static void demonstratePaymentToBooking() throws Exception {
@@ -231,17 +296,12 @@ public class CinemaConsoleClient {
 
         String bookingResponse = sendPostRequest(BOOKING_SERVICE_URL + "/bookings", bookingJson);
         System.out.println("Booking created:");
-        System.out.println(bookingResponse);
+        System.out.println(formatJson(bookingResponse));
         System.out.println();
 
         System.out.print("Enter the created booking ID (e.g., bk-1003): ");
         Scanner scanner = new Scanner(System.in);
         String bookingId = scanner.nextLine();
-
-        System.out.println();
-        System.out.println("Step 1: Client requests payment for booking '" + bookingId + "'");
-        System.out.println("        POST /payments → Payment Service");
-        System.out.println();
 
         String paymentJson = String.format("""
             {
@@ -251,42 +311,47 @@ public class CinemaConsoleClient {
             }
             """, bookingId);
 
-        System.out.println("Step 2: Payment Service validates booking via IPC...");
-        System.out.println("        [IPC] GET /bookings/" + bookingId + " → Booking Service");
-        System.out.println();
-        System.out.println("Step 3: Booking Service returns booking details");
-        System.out.println();
-        System.out.println("Step 4: Payment Service validates amount matches booking total");
-        System.out.println();
-        System.out.println("Step 5: Payment created with status PENDING");
-        System.out.println();
-        System.out.println("Step 6: After 2 seconds, payment processes...");
-        System.out.println();
-        System.out.println("Step 7: On success, Payment Service confirms booking via IPC:");
-        System.out.println("        [IPC] PUT /bookings/" + bookingId + " {\"status\": \"CONFIRMED\"}");
-        System.out.println();
+        System.out.println("\nInitiating payment...");
+        String response = sendPostRequestWithDetails(PAYMENT_SERVICE_URL + "/payments", paymentJson);
 
-        String response = sendPostRequest(PAYMENT_SERVICE_URL + "/payments", paymentJson);
-
-        System.out.println("  RESULT: Payment initiated!");
-        System.out.println(response);
-        System.out.println();
-        System.out.println("Wait 3 seconds for async processing...");
+        System.out.println("\nWaiting for async processing (3 seconds)...");
         Thread.sleep(3000);
 
-        System.out.println();
-        System.out.println("Checking booking status after payment...");
+        System.out.println("\nChecking booking status after payment...");
         String bookingCheck = sendGetRequest(BOOKING_SERVICE_URL + "/bookings/" + bookingId, "application/json");
-        System.out.println(bookingCheck);
-        System.out.println();
-        System.out.println("  IPC Summary:");
+        System.out.println(formatJson(bookingCheck));
+
+        System.out.println("\n✓ IPC Summary:");
         System.out.println("  - Client → Payment Service: 1 call");
         System.out.println("  - Payment Service → Booking Service: 2 calls (validate + confirm)");
         System.out.println("  - Distributed transaction handled via async confirmation");
         System.out.println("  - Booking status changed: PENDING → CONFIRMED");
     }
 
-    // ============ NEW: FAIL-SAFE DEMONSTRATION ============
+    private static void demonstratePaymentToBookingInvalid() throws Exception {
+        System.out.println("\n--- IPC Demo: Payment → Booking (Invalid Booking) ---");
+        System.out.println();
+
+        String paymentJson = """
+            {
+              "bookingId": "bk-9999",
+              "amount": {"value": 100.0, "currency": "EUR"},
+              "method": "CARD"
+            }
+            """;
+
+        System.out.println("Attempting payment for non-existent booking 'bk-9999'...");
+        System.out.println();
+
+        sendPostRequestWithDetails(PAYMENT_SERVICE_URL + "/payments", paymentJson);
+
+        System.out.println("\n✓ IPC Summary:");
+        System.out.println("  - Payment Service detected invalid booking via IPC");
+        System.out.println("  - Prevented payment for non-existent booking");
+        System.out.println("  - Client received clear error message");
+    }
+
+    // ============ FAIL-SAFE DEMONSTRATION ============
 
     private static void demonstrateFailSafe(Scanner scanner) {
         System.out.println("\n============================================================");
@@ -296,64 +361,97 @@ public class CinemaConsoleClient {
         System.out.println("This demo shows how services handle failures:");
         System.out.println("1. Graceful degradation when service is down");
         System.out.println("2. Proper error messages instead of cascading failures");
+        System.out.println("3. System stability despite component failure");
         System.out.println();
-        System.out.println("    NOTE: For full demo, stop Movie Service (Ctrl+C)");
-        System.out.println("    Then try to create a booking - it will fail gracefully");
-        System.out.println();
-        System.out.println("Press Enter to test booking with potentially unavailable Movie Service...");
+        System.out.println("Choose scenario:");
+        System.out.println("1. Test with all services running");
+        System.out.println("2. Test with Movie Service down (requires manual stop)");
+        System.out.println("3. Test with Booking Service down (requires manual stop)");
+        System.out.print("Choice: ");
+
+        int choice = scanner.nextInt();
         scanner.nextLine();
 
         try {
-            String json = """
-                {
-                  "sessionId": "sess-1001",
-                  "userId": "user-failsafe",
-                  "customerName": "Fail Safe Test",
-                  "customerEmail": "failsafe@test.com",
-                  "seats": [
-                    {"row": 20, "number": 20, "seatId": "R20N20"}
-                  ]
-                }
-                """;
-
-            System.out.println("Attempting to create booking...");
-            System.out.println("Booking Service will try to call Movie Service...");
-            System.out.println();
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings"))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(10))
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 201) {
-                System.out.println("Movie Service is UP - Booking created successfully!");
-                System.out.println(formatJson(response.body()));
-            } else {
-                System.out.println("Request failed with status: " + response.statusCode());
-                System.out.println(formatJson(response.body()));
+            switch (choice) {
+                case 1 -> testFailSafeAllServicesUp();
+                case 2 -> testFailSafeMovieDown();
+                case 3 -> testFailSafeBookingDown();
             }
-
-            System.out.println();
-            System.out.println("Fail-Safe Summary:");
-            System.out.println("  - If Movie Service is down: Clear error message to client");
-            System.out.println("  - Booking Service does NOT crash (fail-silent)");
-            System.out.println("  - Client receives HTTP 400 with explanation");
-            System.out.println("  - No cascading failure to other services");
-
         } catch (Exception e) {
-            System.out.println("Connection failed: " + e.getMessage());
-            System.out.println();
-            System.out.println("This demonstrates fail-safe behavior:");
-            System.out.println("  - Service gracefully handles network failures");
-            System.out.println("  - No cascading crash");
+            System.out.println("Error: " + e.getMessage());
         }
     }
 
-    // ============ EXISTING METHODS (unchanged) ============
+    private static void testFailSafeAllServicesUp() throws Exception {
+        System.out.println("\n--- All Services Running (Normal Operation) ---\n");
+
+        String json = """
+            {
+              "sessionId": "sess-1001",
+              "userId": "user-test",
+              "customerName": "Test User",
+              "customerEmail": "test@example.com",
+              "seats": [
+                {"row": 15, "number": 10, "seatId": "R15N10"}
+              ]
+            }
+            """;
+
+        sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", json);
+    }
+
+    private static void testFailSafeMovieDown() throws Exception {
+        System.out.println("\n--- Movie Service Down ---");
+        System.out.println("Please stop Movie Service now (Ctrl+C in its terminal)");
+        System.out.println("Press Enter when ready...");
+        new Scanner(System.in).nextLine();
+
+        String json = """
+            {
+              "sessionId": "sess-1001",
+              "userId": "user-failsafe",
+              "customerName": "Fail Safe Test",
+              "customerEmail": "failsafe@test.com",
+              "seats": [
+                {"row": 20, "number": 20, "seatId": "R20N20"}
+              ]
+            }
+            """;
+
+        sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", json);
+
+        System.out.println("\n✓ Fail-Safe Behavior:");
+        System.out.println("  - Booking Service detected Movie Service unavailability");
+        System.out.println("  - No crash or exception propagation");
+        System.out.println("  - Clear error message to client");
+        System.out.println("  - Booking Service remains operational");
+    }
+
+    private static void testFailSafeBookingDown() throws Exception {
+        System.out.println("\n--- Booking Service Down ---");
+        System.out.println("Please stop Booking Service now (Ctrl+C in its terminal)");
+        System.out.println("Press Enter when ready...");
+        new Scanner(System.in).nextLine();
+
+        String json = """
+            {
+              "bookingId": "bk-1001",
+              "amount": {"value": 21.0, "currency": "EUR"},
+              "method": "CARD"
+            }
+            """;
+
+        sendPostRequestWithDetails(PAYMENT_SERVICE_URL + "/payments", json);
+
+        System.out.println("\n✓ Fail-Safe Behavior:");
+        System.out.println("  - Payment Service detected Booking Service unavailability");
+        System.out.println("  - No crash or exception propagation");
+        System.out.println("  - Clear error message to client");
+        System.out.println("  - Payment Service remains operational");
+    }
+
+    // ============ EXISTING METHODS ============
 
     private static void testMovieService(Scanner scanner) {
         System.out.println("\nMOVIE SERVICE - Testing");
@@ -668,165 +766,66 @@ public class CinemaConsoleClient {
         System.out.println("\n--- Testing 404 Not Found ---");
 
         System.out.println("\n1. Getting non-existent movie (mov-999):");
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(MOVIE_SERVICE_URL + "/movies/mov-999"))
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        sendGetRequestWithDetails(MOVIE_SERVICE_URL + "/movies/mov-999");
 
         System.out.println("\n2. Getting non-existent booking (bk-9999):");
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings/bk-9999"))
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        sendGetRequestWithDetails(BOOKING_SERVICE_URL + "/bookings/bk-9999");
 
         System.out.println("\n3. Getting non-existent payment (pay-9999):");
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(PAYMENT_SERVICE_URL + "/payments/pay-9999"))
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        sendGetRequestWithDetails(PAYMENT_SERVICE_URL + "/payments/pay-9999");
     }
 
-    private static void test400BadRequest() {
+    private static void test400BadRequest() throws Exception {
         System.out.println("\n--- Testing 400 Bad Request ---");
 
         System.out.println("\n1. Creating booking with missing required fields:");
-        try {
-            String invalidJson = """
-                {
-                  "sessionId": "",
-                  "userId": "",
-                  "customerName": "",
-                  "seats": []
-                }
-                """;
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings"))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(invalidJson))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        String invalidBooking = """
+            {
+              "sessionId": "",
+              "userId": "",
+              "customerName": "",
+              "seats": []
+            }
+            """;
+        sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", invalidBooking);
 
         System.out.println("\n2. Creating payment with invalid method:");
-        try {
-            String invalidJson = """
-                {
-                  "bookingId": "bk-1001",
-                  "amount": {"value": 10.0, "currency": "EUR"},
-                  "method": "INVALID_METHOD"
-                }
-                """;
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(PAYMENT_SERVICE_URL + "/payments"))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(invalidJson))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        String invalidPayment = """
+            {
+              "bookingId": "bk-1001",
+              "amount": {"value": 10.0, "currency": "EUR"},
+              "method": "INVALID_METHOD"
+            }
+            """;
+        sendPostRequestWithDetails(PAYMENT_SERVICE_URL + "/payments", invalidPayment);
     }
 
-    private static void test409Conflict() {
+    private static void test409Conflict() throws Exception {
         System.out.println("\n--- Testing 409 Conflict ---");
 
         System.out.println("\n1. Creating duplicate payment for existing booking:");
-        try {
-            String json = """
-                {
-                  "bookingId": "bk-1001",
-                  "amount": {"value": 21.0, "currency": "EUR"},
-                  "method": "CARD"
-                }
-                """;
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(PAYMENT_SERVICE_URL + "/payments"))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        String json = """
+            {
+              "bookingId": "bk-1001",
+              "amount": {"value": 21.0, "currency": "EUR"},
+              "method": "CARD"
+            }
+            """;
+        sendPostRequestWithDetails(PAYMENT_SERVICE_URL + "/payments", json);
 
         System.out.println("\n2. Booking already reserved seat:");
-        try {
-            String json = """
-                {
-                  "sessionId": "sess-1002",
-                  "userId": "user-9002",
-                  "customerName": "Another User",
-                  "customerEmail": "another@example.com",
-                  "seats": [
-                    {"row": 7, "number": 12, "seatId": "R7N12"}
-                  ]
-                }
-                """;
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BOOKING_SERVICE_URL + "/bookings"))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body:");
-            System.out.println(formatJson(response.body()));
-        } catch (Exception e) {
-            System.out.println("Exception: " + e.getMessage());
-        }
+        String seatJson = """
+            {
+              "sessionId": "sess-1002",
+              "userId": "user-9002",
+              "customerName": "Another User",
+              "customerEmail": "another@example.com",
+              "seats": [
+                {"row": 7, "number": 12, "seatId": "R7N12"}
+              ]
+            }
+            """;
+        sendPostRequestWithDetails(BOOKING_SERVICE_URL + "/bookings", seatJson);
     }
 
     private static void testContentNegotiation(Scanner scanner) {
@@ -932,6 +931,41 @@ public class CinemaConsoleClient {
 
         HttpResponse<String> response = httpClient.send(request,
                 HttpResponse.BodyHandlers.ofString());
+
+        return response.body();
+    }
+
+    private static void sendGetRequestWithDetails(String url) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            System.out.println("Status Code: " + response.statusCode());
+            System.out.println("Response Body:");
+            System.out.println(formatJson(response.body()));
+        } catch (Exception e) {
+            System.out.println("✗ Request failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    private static String sendPostRequestWithDetails(String url, String jsonBody) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        System.out.println("Status Code: " + response.statusCode());
+        System.out.println("Response Body:");
+        System.out.println(formatJson(response.body()));
 
         return response.body();
     }

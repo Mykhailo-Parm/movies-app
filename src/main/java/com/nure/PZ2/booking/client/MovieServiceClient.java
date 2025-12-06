@@ -13,8 +13,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * Client for inter-service communication with Movie Service
- * Includes JSON Schema validation for contract verification
+ * Enhanced client for inter-service communication with Movie Service
+ * Includes comprehensive error handling and JSON Schema validation
  */
 @Component
 public class MovieServiceClient {
@@ -70,15 +70,31 @@ public class MovieServiceClient {
                 return objectMapper.readValue(responseBody, MovieSessionDTO.class);
 
             } else if (response.statusCode() == 404) {
-                System.err.println("Session not found in Movie Service: " + sessionId);
+                System.err.println("[IPC ERROR] Session not found in Movie Service: " + sessionId);
                 return null;
             } else {
-                System.err.println("Movie Service returned status: " + response.statusCode());
+                System.err.println("[IPC ERROR] Movie Service returned unexpected status: " + response.statusCode());
+                System.err.println("Response: " + response.body());
                 return null;
             }
 
+        } catch (java.net.ConnectException e) {
+            System.err.println("[IPC ERROR] Cannot connect to Movie Service at " + movieServiceUrl);
+            System.err.println("Is Movie Service running?");
+            return null;
+        } catch (java.net.http.HttpTimeoutException e) {
+            System.err.println("[IPC ERROR] Movie Service request timed out after 5 seconds");
+            return null;
+        } catch (java.io.IOException e) {
+            System.err.println("[IPC ERROR] Network error calling Movie Service: " + e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            System.err.println("[IPC ERROR] Request to Movie Service was interrupted");
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception e) {
-            System.err.println("Failed to call Movie Service: " + e.getMessage());
+            System.err.println("[IPC ERROR] Unexpected error calling Movie Service: " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
     }
@@ -114,7 +130,15 @@ public class MovieServiceClient {
 
             return response.statusCode() == 200;
         } catch (Exception e) {
+            System.err.println("[HEALTH CHECK] Movie Service is not healthy: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Get service URL for error messages
+     */
+    public String getServiceUrl() {
+        return movieServiceUrl;
     }
 }

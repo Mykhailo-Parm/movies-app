@@ -55,25 +55,43 @@ public class BookingService {
         validateBookingRequest(request);
 
         // INTER-SERVICE CALL: Validate session exists in Movie Service
+        System.out.println("[IPC] Validating session " + request.getSessionId() + " with Movie Service...");
+
         MovieSessionDTO session = movieServiceClient.getSession(request.getSessionId());
+
         if (session == null) {
+            // Check if Movie Service is available
+            if (!movieServiceClient.isServiceHealthy()) {
+                throw new IllegalArgumentException(
+                        "Cannot validate session: Movie Service is not available at " +
+                                movieServiceClient.getServiceUrl() + ". Please ensure the service is running."
+                );
+            }
+
+            // Service is available but session not found
             throw new IllegalArgumentException(
-                    "Session " + request.getSessionId() + " not found in Movie Service"
+                    "Session " + request.getSessionId() + " not found in Movie Service. " +
+                            "Please verify the session ID is correct."
             );
         }
 
+        // Validate session status
         if (!"Scheduled".equals(session.getStatus())) {
             throw new IllegalArgumentException(
-                    "Session " + request.getSessionId() + " is not available for booking"
+                    "Session " + request.getSessionId() + " is not available for booking. " +
+                            "Current status: " + session.getStatus() + ". Only 'Scheduled' sessions can be booked."
             );
         }
 
+        // Validate available seats
         if (session.getAvailableSeats() < request.getSeats().size()) {
             throw new IllegalArgumentException(
-                    "Not enough available seats in session " + request.getSessionId()
+                    "Not enough available seats in session " + request.getSessionId() + ". " +
+                            "Requested: " + request.getSeats().size() + ", Available: " + session.getAvailableSeats()
             );
         }
 
+        // Check if requested seats are already booked
         checkSeatsAvailability(request.getSessionId(), request.getSeats());
 
         String newId = "bk-" + String.format("%04d", idCounter.getAndIncrement());
@@ -106,8 +124,8 @@ public class BookingService {
 
         Booking savedBooking = bookingRepository.save(booking);
 
-        System.out.println("[IPC] Booking " + newId + " created for session " +
-                request.getSessionId() + " from Movie Service");
+        System.out.println("[IPC SUCCESS] Booking " + newId + " created for session " +
+                request.getSessionId() + " (validated via Movie Service)");
 
         return convertToDTO(savedBooking);
     }
@@ -123,6 +141,9 @@ public class BookingService {
             if ("CONFIRMED".equals(request.getStatus())) {
                 existingBooking.setConfirmedAt(LocalDateTime.now());
                 existingBooking.setExpiresAt(null);
+                System.out.println("[STATUS CHANGE] Booking " + id + " confirmed");
+            } else if ("CANCELLED".equals(request.getStatus())) {
+                System.out.println("[STATUS CHANGE] Booking " + id + " cancelled");
             }
         }
 
@@ -139,18 +160,26 @@ public class BookingService {
                 .orElseThrow(() -> new BookingNotFoundException("Booking with ID " + id + " not found"));
 
         if ("CANCELLED".equals(booking.getStatus())) {
-            throw new IllegalArgumentException("Booking is already cancelled");
+            throw new IllegalArgumentException("Booking " + id + " is already cancelled");
+        }
+
+        if ("CONFIRMED".equals(booking.getStatus())) {
+            throw new IllegalArgumentException(
+                    "Cannot cancel confirmed booking " + id + ". Please contact support for assistance."
+            );
         }
 
         booking.setStatus("CANCELLED");
         bookingRepository.save(booking);
+        System.out.println("[CANCELLATION] Booking " + id + " cancelled successfully");
     }
 
     public void deleteBooking(String id) {
-        if (!bookingRepository.findById(id).isPresent()) {
+        if (bookingRepository.findById(id).isEmpty()) {
             throw new BookingNotFoundException("Booking with ID " + id + " not found");
         }
         bookingRepository.deleteById(id);
+        System.out.println("[DELETION] Booking " + id + " deleted from system");
     }
 
     private BookingDTO convertToDTO(Booking booking) {
@@ -187,20 +216,35 @@ public class BookingService {
     }
 
     private void validateBookingRequest(CreateBookingRequest request) {
-        if (request.getSessionId() == null || request.getSessionId().isEmpty()) {
-            throw new IllegalArgumentException("Session ID is required");
+        if (request.getSessionId() == null || request.getSessionId().trim().isEmpty()) {
+            throw new IllegalArgumentException("Session ID is required and cannot be empty");
         }
-        if (request.getUserId() == null || request.getUserId().isEmpty()) {
-            throw new IllegalArgumentException("User ID is required");
+        if (request.getUserId() == null || request.getUserId().trim().isEmpty()) {
+            throw new IllegalArgumentException("User ID is required and cannot be empty");
         }
         if (request.getSeats() == null || request.getSeats().isEmpty()) {
-            throw new IllegalArgumentException("At least one seat must be selected");
+            throw new IllegalArgumentException("At least one seat must be selected for booking");
         }
-        if (request.getCustomerName() == null || request.getCustomerName().isEmpty()) {
-            throw new IllegalArgumentException("Customer name is required");
+        if (request.getCustomerName() == null || request.getCustomerName().trim().isEmpty()) {
+            throw new IllegalArgumentException("Customer name is required and cannot be empty");
         }
-        if (request.getCustomerEmail() == null || request.getCustomerEmail().isEmpty()) {
-            throw new IllegalArgumentException("Customer email is required");
+        if (request.getCustomerEmail() == null || request.getCustomerEmail().trim().isEmpty()) {
+            throw new IllegalArgumentException("Customer email is required and cannot be empty");
+        }
+
+        // Validate email format
+        if (!request.getCustomerEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+            throw new IllegalArgumentException("Customer email is not in valid format");
+        }
+
+        // Validate seat data
+        for (CreateBookingRequest.SeatRequest seat : request.getSeats()) {
+            if (seat.getSeatId() == null || seat.getSeatId().trim().isEmpty()) {
+                throw new IllegalArgumentException("Seat ID is required for all seats");
+            }
+            if (seat.getRow() <= 0 || seat.getNumber() <= 0) {
+                throw new IllegalArgumentException("Seat row and number must be positive");
+            }
         }
     }
 
@@ -208,7 +252,9 @@ public class BookingService {
         for (CreateBookingRequest.SeatRequest seat : requestedSeats) {
             if (bookingRepository.isSeatBooked(sessionId, seat.getSeatId())) {
                 throw new SeatAlreadyBookedException(
-                        "Seat " + seat.getSeatId() + " is already booked for this session"
+                        "Seat " + seat.getSeatId() + " (Row " + seat.getRow() + ", Number " +
+                                seat.getNumber() + ") is already booked for session " + sessionId +
+                                ". Please select a different seat."
                 );
             }
         }
@@ -216,10 +262,23 @@ public class BookingService {
 
     private void validateStatusTransition(String currentStatus, String newStatus) {
         if ("CANCELLED".equals(currentStatus)) {
-            throw new IllegalArgumentException("Cannot change status of cancelled booking");
+            throw new IllegalArgumentException(
+                    "Cannot change status of cancelled booking. Current status: CANCELLED"
+            );
         }
         if ("CONFIRMED".equals(currentStatus) && "PENDING".equals(newStatus)) {
-            throw new IllegalArgumentException("Cannot change confirmed booking back to pending");
+            throw new IllegalArgumentException(
+                    "Cannot change confirmed booking back to pending. " +
+                            "Invalid transition: CONFIRMED -> PENDING"
+            );
+        }
+
+        // Validate status value
+        if (!List.of("PENDING", "CONFIRMED", "CANCELLED").contains(newStatus)) {
+            throw new IllegalArgumentException(
+                    "Invalid status: " + newStatus + ". " +
+                            "Allowed values: PENDING, CONFIRMED, CANCELLED"
+            );
         }
     }
 }

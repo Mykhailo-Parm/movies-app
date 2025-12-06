@@ -13,8 +13,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * Client for inter-service communication with Booking Service
- * Includes JSON Schema validation for contract verification
+ * Enhanced client for inter-service communication with Booking Service
+ * Includes comprehensive error handling and JSON Schema validation
  */
 @Component
 public class BookingServiceClient {
@@ -70,15 +70,31 @@ public class BookingServiceClient {
                 return objectMapper.readValue(responseBody, BookingInfoDTO.class);
 
             } else if (response.statusCode() == 404) {
-                System.err.println("Booking not found in Booking Service: " + bookingId);
+                System.err.println("[IPC ERROR] Booking not found in Booking Service: " + bookingId);
                 return null;
             } else {
-                System.err.println("Booking Service returned status: " + response.statusCode());
+                System.err.println("[IPC ERROR] Booking Service returned unexpected status: " + response.statusCode());
+                System.err.println("Response: " + response.body());
                 return null;
             }
 
+        } catch (java.net.ConnectException e) {
+            System.err.println("[IPC ERROR] Cannot connect to Booking Service at " + bookingServiceUrl);
+            System.err.println("Is Booking Service running?");
+            return null;
+        } catch (java.net.http.HttpTimeoutException e) {
+            System.err.println("[IPC ERROR] Booking Service request timed out after 5 seconds");
+            return null;
+        } catch (java.io.IOException e) {
+            System.err.println("[IPC ERROR] Network error calling Booking Service: " + e.getMessage());
+            return null;
+        } catch (InterruptedException e) {
+            System.err.println("[IPC ERROR] Request to Booking Service was interrupted");
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception e) {
-            System.err.println("Failed to call Booking Service: " + e.getMessage());
+            System.err.println("[IPC ERROR] Unexpected error calling Booking Service: " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
     }
@@ -106,15 +122,28 @@ public class BookingServiceClient {
             );
 
             if (response.statusCode() == 200) {
-                System.out.println("[IPC] Successfully confirmed booking " + bookingId);
+                System.out.println("[IPC SUCCESS] Successfully confirmed booking " + bookingId);
                 return true;
+            } else if (response.statusCode() == 404) {
+                System.err.println("[IPC ERROR] Booking " + bookingId + " not found for confirmation");
+                return false;
+            } else if (response.statusCode() == 400) {
+                System.err.println("[IPC ERROR] Cannot confirm booking " + bookingId + ": " + response.body());
+                return false;
             } else {
-                System.err.println("[IPC] Failed to confirm booking. Status: " + response.statusCode());
+                System.err.println("[IPC ERROR] Failed to confirm booking. Status: " + response.statusCode());
+                System.err.println("Response: " + response.body());
                 return false;
             }
 
+        } catch (java.net.ConnectException e) {
+            System.err.println("[IPC ERROR] Cannot connect to Booking Service for confirmation");
+            return false;
+        } catch (java.net.http.HttpTimeoutException e) {
+            System.err.println("[IPC ERROR] Booking confirmation request timed out");
+            return false;
         } catch (Exception e) {
-            System.err.println("Failed to confirm booking: " + e.getMessage());
+            System.err.println("[IPC ERROR] Failed to confirm booking: " + e.getMessage());
             return false;
         }
     }
@@ -128,5 +157,36 @@ public class BookingServiceClient {
         BookingInfoDTO booking = getBooking(bookingId);
         return booking != null &&
                 ("PENDING".equals(booking.getStatus()) || "CONFIRMED".equals(booking.getStatus()));
+    }
+
+    /**
+     * Health check for Booking Service
+     * @return true if Booking Service is reachable
+     */
+    public boolean isServiceHealthy() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(bookingServiceUrl + "/bookings"))
+                    .timeout(Duration.ofSeconds(3))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            return response.statusCode() == 200;
+        } catch (Exception e) {
+            System.err.println("[HEALTH CHECK] Booking Service is not healthy: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get service URL for error messages
+     */
+    public String getServiceUrl() {
+        return bookingServiceUrl;
     }
 }
