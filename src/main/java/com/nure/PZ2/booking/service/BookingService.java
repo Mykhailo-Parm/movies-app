@@ -1,5 +1,6 @@
 package com.nure.PZ2.booking.service;
 
+import com.nure.PZ2.booking.client.MovieServiceClient;
 import com.nure.PZ2.booking.dto.*;
 import com.nure.PZ2.booking.exception.BookingNotFoundException;
 import com.nure.PZ2.booking.exception.SeatAlreadyBookedException;
@@ -17,10 +18,13 @@ import java.util.stream.Collectors;
 public class BookingService {
 
     private final BookingRepository bookingRepository;
+    private final MovieServiceClient movieServiceClient;
     private final AtomicInteger idCounter = new AtomicInteger(1003);
 
-    public BookingService(BookingRepository bookingRepository) {
+    public BookingService(BookingRepository bookingRepository,
+                          MovieServiceClient movieServiceClient) {
         this.bookingRepository = bookingRepository;
+        this.movieServiceClient = movieServiceClient;
     }
 
     public List<BookingDTO> getAllBookings() {
@@ -49,6 +53,27 @@ public class BookingService {
 
     public BookingDTO createBooking(CreateBookingRequest request) {
         validateBookingRequest(request);
+
+        // INTER-SERVICE CALL: Validate session exists in Movie Service
+        MovieSessionDTO session = movieServiceClient.getSession(request.getSessionId());
+        if (session == null) {
+            throw new IllegalArgumentException(
+                    "Session " + request.getSessionId() + " not found in Movie Service"
+            );
+        }
+
+        if (!"Scheduled".equals(session.getStatus())) {
+            throw new IllegalArgumentException(
+                    "Session " + request.getSessionId() + " is not available for booking"
+            );
+        }
+
+        if (session.getAvailableSeats() < request.getSeats().size()) {
+            throw new IllegalArgumentException(
+                    "Not enough available seats in session " + request.getSessionId()
+            );
+        }
+
         checkSeatsAvailability(request.getSessionId(), request.getSeats());
 
         String newId = "bk-" + String.format("%04d", idCounter.getAndIncrement());
@@ -58,7 +83,11 @@ public class BookingService {
                 .map(s -> new Seat(s.getRow(), s.getNumber(), s.getSeatId()))
                 .collect(Collectors.toList());
 
-        Price totalPrice = calculateTotalPrice(seats);
+        // Use price from Movie Service session
+        Price totalPrice = new Price(
+                session.getPrice().getValue() * seats.size(),
+                session.getPrice().getCurrency()
+        );
 
         Booking booking = new Booking(
                 newId,
@@ -76,6 +105,10 @@ public class BookingService {
         );
 
         Booking savedBooking = bookingRepository.save(booking);
+
+        System.out.println("[IPC] Booking " + newId + " created for session " +
+                request.getSessionId() + " from Movie Service");
+
         return convertToDTO(savedBooking);
     }
 
@@ -179,11 +212,6 @@ public class BookingService {
                 );
             }
         }
-    }
-
-    private Price calculateTotalPrice(List<Seat> seats) {
-        double pricePerSeat = 10.5;
-        return new Price(seats.size() * pricePerSeat, "EUR");
     }
 
     private void validateStatusTransition(String currentStatus, String newStatus) {

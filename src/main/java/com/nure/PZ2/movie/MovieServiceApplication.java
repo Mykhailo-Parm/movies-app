@@ -3,10 +3,15 @@ package com.nure.PZ2.movie;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
 @SpringBootApplication
+@ComponentScan(basePackages = {
+        "com.nure.PZ2.movie",
+        "com.nure.PZ2.common"
+})
 public class MovieServiceApplication {
     public static void main(String[] args) {
         System.setProperty("spring.profiles.active", "movie");
