@@ -1,0 +1,138 @@
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      # Інтеграція з Eureka для service discovery
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      # Маршрутизація
+      routes:
+        # ============ MOVIE SERVICE (публічний) ============
+        - id: movie-service
+          uri: lb://MOVIE-SERVICE
+          predicates:
+            - Path=/api/movies/**
+          filters:
+            - RewritePath=/api/movies/(?<segment>.*), /api/movies/$\{segment}
+            - name: CircuitBreaker
+              args:
+                name: movieServiceCircuitBreaker
+                fallbackUri: forward:/fallback/movies
+
+        # ============ BOOKING SERVICE (публічний) ============
+        - id: booking-service
+          uri: lb://BOOKING-SERVICE
+          predicates:
+            - Path=/api/bookings/**
+          filters:
+            - RewritePath=/api/bookings/(?<segment>.*), /api/bookings/$\{segment}
+            - name: CircuitBreaker
+              args:
+                name: bookingServiceCircuitBreaker
+                fallbackUri: forward:/fallback/bookings
+
+        # ============ PAYMENT SERVICE (публічний) ============
+        - id: payment-service
+          uri: lb://PAYMENT-SERVICE
+          predicates:
+            - Path=/api/payments/**
+          filters:
+            - RewritePath=/api/payments/(?<segment>.*), /api/payments/$\{segment}
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCircuitBreaker
+                fallbackUri: forward:/fallback/payments
+
+        # ============ SWAGGER UI для всіх сервісів ============
+        - id: movie-swagger
+          uri: lb://MOVIE-SERVICE
+          predicates:
+            - Path=/movie-service/v3/api-docs/**
+          filters:
+            - RewritePath=/movie-service/v3/api-docs/(?<segment>.*), /v3/api-docs/$\{segment}
+
+        - id: booking-swagger
+          uri: lb://BOOKING-SERVICE
+          predicates:
+            - Path=/booking-service/v3/api-docs/**
+          filters:
+            - RewritePath=/booking-service/v3/api-docs/(?<segment>.*), /v3/api-docs/$\{segment}
+
+        - id: payment-swagger
+          uri: lb://PAYMENT-SERVICE
+          predicates:
+            - Path=/payment-service/v3/api-docs/**
+          filters:
+            - RewritePath=/payment-service/v3/api-docs/(?<segment>.*), /v3/api-docs/$\{segment}
+
+      # Глобальні CORS налаштування
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+
+server:
+  port: 8080
+
+# Eureka Client Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+# Resilience4j Circuit Breaker
+resilience4j:
+  circuitbreaker:
+    instances:
+      movieServiceCircuitBreaker:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10000
+        permitted-number-of-calls-in-half-open-state: 3
+      bookingServiceCircuitBreaker:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10000
+        permitted-number-of-calls-in-half-open-state: 3
+      paymentServiceCircuitBreaker:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10000
+        permitted-number-of-calls-in-half-open-state: 3
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# Logging
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

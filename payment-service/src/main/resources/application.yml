@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: payment-service
+
+server:
+  port: 8083
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# Eureka Client Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
+# Inter-service Communication via Service Discovery
+services:
+  booking:
+    name: booking-service
+
+# Jackson Configuration
+jackson:
+  serialization:
+    write-dates-as-timestamps: false
+  time-zone: Europe/Kiev
+  default-property-inclusion: non_null
+
+# Content Negotiation
+mvc:
+  contentnegotiation:
+    favor-parameter: false
+    favor-path-extension: false
+    media-types:
+      json: application/json
+      xml: application/xml
+
+# OpenAPI/Swagger
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# Actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,eureka
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.nure.cinema.payment: DEBUG
+    com.netflix.eureka: DEBUG
+    com.netflix.discovery: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
