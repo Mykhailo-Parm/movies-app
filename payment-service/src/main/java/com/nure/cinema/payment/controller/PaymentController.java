@@ -1,5 +1,6 @@
 package com.nure.cinema.payment.controller;
 
+import com.nure.cinema.payment.client.BookingServiceClient;
 import com.nure.cinema.payment.dto.*;
 import com.nure.cinema.payment.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,7 +11,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payments")
@@ -18,9 +21,11 @@ import java.util.List;
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final BookingServiceClient bookingServiceClient;
 
-    public PaymentController(PaymentService paymentService) {
+    public PaymentController(PaymentService paymentService, BookingServiceClient bookingServiceClient) {
         this.paymentService = paymentService;
+        this.bookingServiceClient = bookingServiceClient;
     }
 
     @GetMapping
@@ -95,5 +100,48 @@ public class PaymentController {
     public ResponseEntity<Void> deletePayment(@PathVariable String id) {
         paymentService.deletePayment(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // ============ NEW: Service Dependencies Health Check ============
+
+    @GetMapping("/health/dependencies")
+    @Operation(summary = "Check dependencies health",
+            description = "Returns health status of dependent services (Booking Service)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Dependencies checked successfully")
+    })
+    public ResponseEntity<Map<String, Object>> checkDependenciesHealth() {
+        Map<String, Object> health = new HashMap<>();
+
+        // Check Booking Service health
+        boolean bookingServiceHealthy = bookingServiceClient.isServiceHealthy();
+        String bookingServiceUrl = bookingServiceClient.getServiceUrl();
+
+        Map<String, Object> bookingServiceStatus = new HashMap<>();
+        bookingServiceStatus.put("healthy", bookingServiceHealthy);
+        bookingServiceStatus.put("info", bookingServiceUrl);
+
+        health.put("bookingService", bookingServiceStatus);
+        health.put("overallStatus", bookingServiceHealthy ? "UP" : "DOWN");
+        health.put("timestamp", java.time.LocalDateTime.now());
+
+        HttpStatus status = bookingServiceHealthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+        return ResponseEntity.status(status).body(health);
+    }
+
+    @GetMapping("/debug/booking-service")
+    @Operation(summary = "Get Booking Service connection info",
+            description = "Returns detailed information about Booking Service connection for debugging")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Connection info retrieved")
+    })
+    public ResponseEntity<Map<String, Object>> getBookingServiceDebugInfo() {
+        Map<String, Object> debugInfo = new HashMap<>();
+
+        debugInfo.put("serviceUrl", bookingServiceClient.getServiceUrl());
+        debugInfo.put("isHealthy", bookingServiceClient.isServiceHealthy());
+        debugInfo.put("timestamp", java.time.LocalDateTime.now());
+
+        return ResponseEntity.ok(debugInfo);
     }
 }

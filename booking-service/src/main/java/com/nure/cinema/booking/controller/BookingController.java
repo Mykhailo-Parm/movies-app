@@ -1,5 +1,6 @@
 package com.nure.cinema.booking.controller;
 
+import com.nure.cinema.booking.client.MovieServiceClient;
 import com.nure.cinema.booking.dto.*;
 import com.nure.cinema.booking.service.BookingService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,7 +11,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bookings")
@@ -18,9 +21,11 @@ import java.util.List;
 public class BookingController {
 
     private final BookingService bookingService;
+    private final MovieServiceClient movieServiceClient;
 
-    public BookingController(BookingService bookingService) {
+    public BookingController(BookingService bookingService, MovieServiceClient movieServiceClient) {
         this.bookingService = bookingService;
+        this.movieServiceClient = movieServiceClient;
     }
 
     @GetMapping
@@ -109,5 +114,52 @@ public class BookingController {
     public ResponseEntity<Void> deleteBooking(@PathVariable String id) {
         bookingService.deleteBooking(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // ============ NEW: Service Dependencies Health Check ============
+
+    @GetMapping("/health/dependencies")
+    @Operation(summary = "Check dependencies health",
+            description = "Returns health status of dependent services (Movie Service)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Dependencies checked successfully")
+    })
+    public ResponseEntity<Map<String, Object>> checkDependenciesHealth() {
+        Map<String, Object> health = new HashMap<>();
+
+        // Check Movie Service health
+        boolean movieServiceHealthy = movieServiceClient.isServiceHealthy();
+        String movieServiceInfo = movieServiceClient.getServiceInfo();
+        String movieServiceUrl = movieServiceClient.getMovieServiceUrl();
+
+        Map<String, Object> movieServiceStatus = new HashMap<>();
+        movieServiceStatus.put("healthy", movieServiceHealthy);
+        movieServiceStatus.put("info", movieServiceInfo);
+        movieServiceStatus.put("selectedInstance", movieServiceUrl != null ? movieServiceUrl : "No instances available");
+
+        health.put("movieService", movieServiceStatus);
+        health.put("overallStatus", movieServiceHealthy ? "UP" : "DOWN");
+        health.put("timestamp", java.time.LocalDateTime.now());
+
+        HttpStatus status = movieServiceHealthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+        return ResponseEntity.status(status).body(health);
+    }
+
+    @GetMapping("/debug/movie-service")
+    @Operation(summary = "Get Movie Service connection info",
+            description = "Returns detailed information about Movie Service connection for debugging")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Connection info retrieved")
+    })
+    public ResponseEntity<Map<String, Object>> getMovieServiceDebugInfo() {
+        Map<String, Object> debugInfo = new HashMap<>();
+
+        debugInfo.put("serviceName", movieServiceClient.getMovieServiceName());
+        debugInfo.put("serviceUrl", movieServiceClient.getMovieServiceUrl());
+        debugInfo.put("serviceInfo", movieServiceClient.getServiceInfo());
+        debugInfo.put("isHealthy", movieServiceClient.isServiceHealthy());
+        debugInfo.put("timestamp", java.time.LocalDateTime.now());
+
+        return ResponseEntity.ok(debugInfo);
     }
 }
